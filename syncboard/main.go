@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"tmp/syncmap"
 
@@ -15,6 +16,11 @@ func main() {
 	r := mux.NewRouter()
 
 	sm := syncmap.New(100)
+	expectname := os.Getenv("name")
+	if expectname == "" {
+		expectname = "test"
+	}
+
 	r.HandleFunc("/syncmap/{name}/{version:[0-9]+}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		name := vars["name"]
@@ -24,7 +30,7 @@ func main() {
 		}
 		fmt.Println(name)
 
-		if name == "test" {
+		if name == expectname {
 			patch := sm.Diff(version)
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(patch)
@@ -39,7 +45,7 @@ func main() {
 		name := vars["name"]
 		key := vars["key"]
 
-		if name == "test" {
+		if name == expectname {
 			data, err := ioutil.ReadAll(r.Body)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -59,7 +65,7 @@ func main() {
 		name := vars["name"]
 		key := vars["key"]
 
-		if name == "test" {
+		if name == expectname {
 			sm.Del(key)
 			w.WriteHeader(http.StatusOK)
 		} else {
