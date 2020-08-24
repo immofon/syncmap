@@ -24,6 +24,8 @@ func main() {
 	if expectname == "" {
 		expectname = "test"
 	}
+	sm.Del(expectname)
+	sm.ForceAchieve()
 
 	r.HandleFunc("/sync/map/{name}/{version:[0-9]+}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
