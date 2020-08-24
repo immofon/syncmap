@@ -7,10 +7,14 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 	"tmp/syncmap"
 
 	"github.com/gorilla/mux"
 )
+
+var LongPollHoldTime = time.Minute * 3
+var CheckVersionInteval = time.Second / 2
 
 func main() {
 	r := mux.NewRouter()
@@ -21,7 +25,7 @@ func main() {
 		expectname = "test"
 	}
 
-	r.HandleFunc("/syncmap/{name}/{version:[0-9]+}", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/sync/map/{name}/{version:[0-9]+}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		name := vars["name"]
 		version, err := strconv.ParseInt(vars["version"], 10, 64)
@@ -31,6 +35,13 @@ func main() {
 		fmt.Println(name)
 
 		if name == expectname {
+			for i := 0; i < int(LongPollHoldTime/CheckVersionInteval); i++ {
+				if sm.Version() != version {
+					break
+				}
+				time.Sleep(CheckVersionInteval)
+			}
+
 			patch := sm.Diff(version)
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(patch)
@@ -40,7 +51,7 @@ func main() {
 		}
 	}).Methods(http.MethodGet)
 
-	r.HandleFunc("/syncmap/{name}/{key}", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/sync/map/{name}/{key}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		name := vars["name"]
 		key := vars["key"]
@@ -60,7 +71,8 @@ func main() {
 		}
 
 	}).Methods(http.MethodPost)
-	r.HandleFunc("/syncmap/{name}/{key}", func(w http.ResponseWriter, r *http.Request) {
+
+	r.HandleFunc("/sync/map/{name}/{key}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		name := vars["name"]
 		key := vars["key"]
