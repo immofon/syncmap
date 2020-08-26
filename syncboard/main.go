@@ -11,6 +11,7 @@ import (
 	"time"
 	"tmp/syncmap"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -97,7 +98,6 @@ func main() {
 		if err != nil {
 			version = 0
 		}
-		fmt.Println(name)
 
 		var sm *syncmap.SyncMap
 		for i := 0; i < int(LongPollHoldTime/CheckVersionInteval); i++ {
@@ -152,13 +152,15 @@ func main() {
 
 	r.Use(func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println(r.URL)
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			h.ServeHTTP(w, r)
 		})
 	})
 
-	err := http.ListenAndServeTLS(":3669", TLS_CERT, TLS_KEY, r)
+	hdr := handlers.LoggingHandler(os.Stdout, r)
+	hdr = handlers.CompressHandler(hdr)
+
+	err := http.ListenAndServeTLS(":3669", TLS_CERT, TLS_KEY, hdr)
 	if err != nil {
 		panic(err)
 	}
