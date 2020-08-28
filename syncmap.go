@@ -7,8 +7,9 @@ import (
 )
 
 type Value struct {
-	V string `json:"v"`
-	T int64  `json:"t"`
+	V        string `json:"v"`
+	T        int64  `json:"t"`
+	Priority int64  `json:"priority"` // default: 0, the bigger value means higher priority
 }
 
 type OpType string
