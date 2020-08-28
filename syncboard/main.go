@@ -9,7 +9,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
-	"tmp/syncmap"
+
+	syncmap "github.com/immofon/syncmap"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -124,6 +125,7 @@ func main() {
 		vars := mux.Vars(r)
 		name := vars["name"]
 		key := vars["key"]
+		priority, _ := strconv.Atoi(vars["priority"])
 
 		data, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -133,7 +135,7 @@ func main() {
 
 		syncms.Create(name).Set(key, string(data))
 		w.WriteHeader(http.StatusOK)
-	}).Methods(http.MethodPost)
+	}).Methods(http.MethodPost).Queries("priority", "{priority:[0-9]*}")
 
 	r.HandleFunc("/sync/map/{name}/{key}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)

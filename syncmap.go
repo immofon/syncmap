@@ -35,7 +35,7 @@ type SyncMap struct {
 	op_list_max_size int
 }
 
-func NewSyncMap(op_list_max_size int) *SyncMap {
+func New(op_list_max_size int) *SyncMap {
 	if op_list_max_size < 1 {
 		panic("op_list_max_size is too small!")
 	}
@@ -65,7 +65,7 @@ func (sm *SyncMap) next_version() int64 {
 	return version
 }
 
-func (sm *SyncMap) Set(key, value string) {
+func (sm *SyncMap) SetWithPriority(key, value string, priority int) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -73,16 +73,20 @@ func (sm *SyncMap) Set(key, value string) {
 		Type: Set,
 		K:    key,
 		V: Value{
-			V: value,
-			T: sm.next_version(),
+			V:        value,
+			T:        sm.next_version(),
+			Priority: int64(priority),
 		},
 	})
 
-	sm.achieve()
+	sm.achieve(false)
+}
+func (sm *SyncMap) Set(key, value string) {
+	sm.SetWithPriority(key, value, 0)
 }
 
-func (sm *SyncMap) achieve() {
-	for sm.op_list.Len() > sm.op_list_max_size {
+func (sm *SyncMap) achieve(force bool) {
+	for sm.op_list.Len() > sm.op_list_max_size || (force && sm.op_list.Len() > 0) {
 		op := sm.op_list.Remove(sm.op_list.Front()).(Op)
 		switch op.Type {
 		case Set:
@@ -108,7 +112,7 @@ func (sm *SyncMap) Del(key string) {
 			T: sm.next_version(),
 		},
 	})
-	sm.achieve()
+	sm.achieve(false)
 }
 
 func (sm *SyncMap) Get(key string) Value {
@@ -135,6 +139,13 @@ type Patch struct {
 	Achieved        map[string]Value `json:"achieved"`
 	AchievedVersion int64            `json:"achieved_version"`
 	Op              []Op             `json:"op"`
+}
+
+func (sm *SyncMap) Version() int64 {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	return sm.version()
 }
 
 func (sm *SyncMap) Diff(after_version int64) Patch {
@@ -190,5 +201,38 @@ func (sm *SyncMap) Patch(patch Patch) {
 			sm.op_list.PushBack(op)
 		}
 	}
-	sm.achieve()
+	sm.achieve(false)
+}
+
+func (sm *SyncMap) ForceAchieve() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	sm.achieve(true)
+}
+
+func (sm *SyncMap) Size() int {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	m := make(map[string]bool)
+	for k, v := range sm.achieved {
+		if v.V != "" {
+			m[k] = true
+		}
+	}
+	for e := sm.op_list.Front(); e != nil; e = e.Next() {
+		op := e.Value.(Op)
+		switch op.Type {
+		case Set:
+			if op.V.V != "" {
+				m[op.K] = true
+			}
+		case Del:
+			delete(m, op.K)
+		default:
+			panic("unsupported op type: " + op.Type)
+		}
+	}
+	return len(m)
 }

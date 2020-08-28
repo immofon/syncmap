@@ -7,7 +7,7 @@ import (
 )
 
 func TestSyncMap(t *testing.T) {
-	sm := NewSyncMap(2)
+	sm := New(2)
 	sm.Set("hello", "syncmap")
 	sm.Set("name", "mofon")
 	sm.Set("email", "immofon@163.com")
