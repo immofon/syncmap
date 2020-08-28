@@ -125,7 +125,10 @@ func main() {
 		vars := mux.Vars(r)
 		name := vars["name"]
 		key := vars["key"]
-		priority, _ := strconv.Atoi(vars["priority"])
+
+		priority, _ := strconv.Atoi(r.URL.Query().Get("priority"))
+
+		fmt.Println(priority)
 
 		data, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -135,7 +138,7 @@ func main() {
 
 		syncms.Create(name).SetWithPriority(key, string(data), priority)
 		w.WriteHeader(http.StatusOK)
-	}).Methods(http.MethodPost).Queries("priority", "{priority:[0-9]*}")
+	}).Methods(http.MethodPost)
 
 	r.HandleFunc("/sync/map/{name}/{key}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
