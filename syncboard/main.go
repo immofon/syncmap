@@ -133,7 +133,7 @@ func main() {
 			return
 		}
 
-		syncms.Create(name).Set(key, string(data))
+		syncms.Create(name).SetWithPriority(key, string(data), priority)
 		w.WriteHeader(http.StatusOK)
 	}).Methods(http.MethodPost).Queries("priority", "{priority:[0-9]*}")
 
