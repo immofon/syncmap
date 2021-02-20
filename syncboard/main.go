@@ -18,7 +18,7 @@ import (
 
 var LongPollHoldTime = time.Minute * 3
 var CheckVersionInteval = time.Second / 2
-var DefaultOpListSize = 50
+var DefaultOpListSize = 200
 
 var TLS_KEY = Getenv("TLS_KEY")
 var TLS_CERT = Getenv("TLS_CERT")
@@ -58,8 +58,6 @@ func (sms *SyncMaps) Create(name string) *syncmap.SyncMap {
 	if m == nil {
 		m = syncmap.New(DefaultOpListSize)
 		sms.maps[name] = m
-		m.Del(name)
-		m.ForceAchieve()
 	}
 	return m
 }
@@ -71,12 +69,8 @@ func (sms *SyncMaps) GC() {
 	}
 	sms.mu.Unlock()
 
-	for name, m := range mapclone {
-		if m.Size() == 0 {
-			sms.mu.Lock()
-			delete(sms.maps, name)
-			sms.mu.Unlock()
-		}
+	for _, m := range mapclone {
+		m.AutoRemove()
 	}
 }
 
@@ -87,7 +81,7 @@ func main() {
 
 	go func() {
 		for {
-			time.Sleep(time.Hour)
+			time.Sleep(time.Second)
 			syncms.GC()
 		}
 	}()
@@ -103,9 +97,9 @@ func main() {
 		var sm *syncmap.SyncMap
 		for i := 0; i < int(LongPollHoldTime/CheckVersionInteval); i++ {
 			if sm == nil {
-				sm = syncms.Get(name)
+				sm = syncms.Create(name)
 			}
-			if sm != nil && sm.Version() != version {
+			if sm.Version() != version {
 				break
 			}
 			time.Sleep(CheckVersionInteval)
@@ -127,8 +121,9 @@ func main() {
 		key := vars["key"]
 
 		priority, _ := strconv.Atoi(r.URL.Query().Get("priority"))
+		autoremove, _ := strconv.Atoi(r.URL.Query().Get("autoremove"))
 
-		fmt.Println(priority)
+		fmt.Printf("SET %s/%s priority=%d autoremove=%d\n", name, key, priority, autoremove)
 
 		data, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -136,7 +131,7 @@ func main() {
 			return
 		}
 
-		syncms.Create(name).SetWithPriority(key, string(data), priority)
+		syncms.Create(name).SetWithOptions(key, string(data), priority, autoremove)
 		w.WriteHeader(http.StatusOK)
 	}).Methods(http.MethodPost)
 

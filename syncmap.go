@@ -9,7 +9,8 @@ import (
 type Value struct {
 	V        string `json:"v"`
 	T        int64  `json:"t"`
-	Priority int64  `json:"priority"` // default: 0, the bigger value means higher priority
+	Priority int64  `json:"priority"`   // default: 0, the bigger value means higher priority
+	Deadline int64  `json:"autoremove"` // Unix timestamp, Value will be auto removed if time.Now().Unix() > Deadline
 }
 
 type OpType string
@@ -42,7 +43,7 @@ func New(op_list_max_size int) *SyncMap {
 	return &SyncMap{
 		mu:               new(sync.Mutex),
 		achieved:         make(map[string]Value),
-		achieved_version: 0,
+		achieved_version: 1,
 		op_list:          list.New(),
 		op_list_max_size: op_list_max_size,
 	}
@@ -65,9 +66,13 @@ func (sm *SyncMap) next_version() int64 {
 	return version
 }
 
-func (sm *SyncMap) SetWithPriority(key, value string, priority int) {
+func (sm *SyncMap) SetWithOptions(key, value string, priority int, autoremove int) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	if autoremove <= 0 {
+		autoremove = 60 * 60 * 1 // 1 hour
+	}
 
 	sm.op_list.PushBack(Op{
 		Type: Set,
@@ -76,13 +81,31 @@ func (sm *SyncMap) SetWithPriority(key, value string, priority int) {
 			V:        value,
 			T:        sm.next_version(),
 			Priority: int64(priority),
+			Deadline: int64(autoremove) + time.Now().Unix(),
 		},
 	})
 
 	sm.achieve(false)
 }
+func (sm *SyncMap) SetWithPriority(key, value string, priority int) {
+	sm.SetWithOptions(key, value, priority, 0)
+}
 func (sm *SyncMap) Set(key, value string) {
-	sm.SetWithPriority(key, value, 0)
+	sm.SetWithOptions(key, value, 0, 0)
+}
+
+func (sm *SyncMap) AutoRemove() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	now := time.Now().Unix()
+	for _, k := range sm.keys() {
+		v := sm.get(k)
+		if now > v.Deadline {
+			sm.del(k, false)
+		}
+	}
+	sm.achieve(false)
 }
 
 func (sm *SyncMap) achieve(force bool) {
@@ -100,10 +123,7 @@ func (sm *SyncMap) achieve(force bool) {
 	}
 }
 
-func (sm *SyncMap) Del(key string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
+func (sm *SyncMap) del(key string, try_achieve bool) {
 	sm.op_list.PushBack(Op{
 		Type: Del,
 		K:    key,
@@ -112,13 +132,19 @@ func (sm *SyncMap) Del(key string) {
 			T: sm.next_version(),
 		},
 	})
-	sm.achieve(false)
+	if try_achieve {
+		sm.achieve(false)
+	}
 }
 
-func (sm *SyncMap) Get(key string) Value {
+func (sm *SyncMap) Del(key string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	sm.del(key, true)
+}
+
+func (sm *SyncMap) get(key string) Value {
 	for e := sm.op_list.Back(); e != nil; e = e.Prev() {
 		op := e.Value.(Op)
 		if op.K == key {
@@ -133,6 +159,39 @@ func (sm *SyncMap) Get(key string) Value {
 		}
 	}
 	return sm.achieved[key]
+}
+
+func (sm *SyncMap) keys() []string {
+	keyset := make(map[string]bool)
+
+	for k, _ := range sm.achieved {
+		keyset[k] = true
+	}
+
+	for e := sm.op_list.Front(); e != nil; e = e.Next() {
+		op := e.Value.(Op)
+		switch op.Type {
+		case Set:
+			keyset[op.K] = true
+		case Del:
+			delete(keyset, op.K)
+		default:
+			panic("Unsupported operation type")
+		}
+	}
+
+	ret := make([]string, 0, len(keyset))
+	for k, _ := range keyset {
+		ret = append(ret, k)
+	}
+	return ret
+}
+
+func (sm *SyncMap) Get(key string) Value {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	return sm.get(key)
 }
 
 type Patch struct {
@@ -215,24 +274,5 @@ func (sm *SyncMap) Size() int {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	m := make(map[string]bool)
-	for k, v := range sm.achieved {
-		if v.V != "" {
-			m[k] = true
-		}
-	}
-	for e := sm.op_list.Front(); e != nil; e = e.Next() {
-		op := e.Value.(Op)
-		switch op.Type {
-		case Set:
-			if op.V.V != "" {
-				m[op.K] = true
-			}
-		case Del:
-			delete(m, op.K)
-		default:
-			panic("unsupported op type: " + op.Type)
-		}
-	}
-	return len(m)
+	return len(sm.keys())
 }
